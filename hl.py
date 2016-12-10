@@ -652,4 +652,3 @@ def main():#this methode manages everything, just read it
 robot = Robot()
 
 
-
