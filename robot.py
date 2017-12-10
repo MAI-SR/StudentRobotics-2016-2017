@@ -1,6 +1,6 @@
 ###################################################################################################################
 #READ ME: For this to work you need to:
-#    		-have your forwardfacing camera, that is at the turning centre of your robot (the robot MUST turn around a center, else the estimateArenaAngle methode is useless)
+#        	-have your camera forwardfacing, and the robot turning around its centre (the point at which the camera is positioned is defined as the ceentre) (the robot MUST turn around its center, else the estimateArenaAngle methode is useless)
 #			-implement estimateArenaAngle into every turn methode
 #			-implement estimateArenaPosition into every drive methode
 #			-implement debugging into every methode changing any variables in it
@@ -18,6 +18,7 @@
 from sr.robot import *
 import math
 import time
+import pyudev
 
 
 
@@ -30,8 +31,8 @@ arenaMarkerConstantY = [4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 3.0, 2.0, 1.0, 0.0, -
 
 turnSpeed = 50#this is the speed the robot turns at
 driveSpeed = 50#this is the speed the robot drives at
-robotCircumfrence = 0#this is the robots circumference when looking at the distance between the two motorized wheels
-robotWheelCircumfrence = 0#this is the robots wheels circumference
+robotCircumfrence = 0.42*3.14159#this is the robots circumference when looking at the distance between the two motorized wheels
+robotWheelCircumfrence = 0.35185#this is the robots wheels circumference
 
 tokenWidth = 0.1225#this is the width of a token in meters divided by 2
 tokenTiltTolerance = 30#this is the tolerance in degrees for a token to still be considered upright (for example 90 +/-tokenTiltTolerance)
@@ -39,17 +40,29 @@ tokenTiltTolerance = 30#this is the tolerance in degrees for a token to still be
 robotCameraResolutionX = 1280#this is the robot cameras X resolution
 robotCameraResolutionY = 960#this is the robot cameras Y resolution
 
-zoneReturnX = [-2.75, 2.75, 2.75, -2.75]#this is a constant used in driveToZone
-zoneReturnY = [2.75, 2.75, -2.75, -2.75]#this is a constant used in driveToZone
+zoneReturnX = [-2.0, 2.0, 2.0, -2.0]#this is a constant used in driveToZone
+zoneReturnY = [2.0, 2.0, -2.0, -2.0]#this is a constant used in driveToZone
 zoneReturnAngle = [135.0, 45.0, 315.0, 225.0]#this is a constant used in driveToZone
 
 zoneTokenSpotX = [-3.0, 2.5, 3.0, -2.5]#this is a constant used in adjustPosition
 zoneTokenSpotY = [2.5, 3.0, -2.5, -3.0]#this is a constant used in adjustPosition
-zoneTokenSpotAngle = [336.0, 246.0, 156.0, 66.0]#this is a constant used in adjustPosition
+zoneTokenSpotAngle = [325.0, 235.0, 145.0, 55.0]#this is a constant used in adjustPosition
 
-zoneSecureTokenX = [[-3.0, -2.5, -3.5, -2.5, -2.0, -3.5], [3.5, 3.5, 2.5, 3.0, 3.5, 2.0], [3.0, 2.5, 3.5, 2.5, 2.0, 3.5], [-3.5, -3.5, -2.5, -3.0, -3.5, -2.0]]#this is a constant used in storeToken
-zoneSecureTokenY = [[3.5, 3.5, 2.5, 3.0, 3.5, 2.0], [3.0, 2.5, 3.5, 2.5, 2.0, 3.5], [-3.5, -3.5, -2.5, -3.0, -2.5, -2.0], [-3.0, -2.5, -3.5, -2.5, -2.0, -3.5]]#this is a constant used in storeToken
-zoneSecureTokenAngle = [[0.0, 0.0, 270.0, 0.0, 0.0, 270.0], [270.0, 270.0, 180.0, 270.0, 270.0, 180.0], [180.0, 180.0, 90.0, 180.0, 180.0, 90.0], [90.0, 90.0, 0,0, 90.0, 90.0, 0,0]]#this is a constant used in storeToken
+zoneSecureTokenX = [-2.75, 2.75, 2.75, -2.75]#this is a constant used in storeToken
+zoneSecureTokenY = [2.75, 2.75, -2.75, -2.75]#this is a constant used in storeToken
+zoneSecureTokenAngle = [315.0, 225.0, 135.0, 45.0]#this is a constant used in storeToken
+
+getToCX = [[-2.5, -1.0], [0.75, 1.0], [2.5, 1.0], [-0.75, -1.0]]#this is a constant used in tryCBeforMain
+getToCY = [[0.75, 1.0], [2.5, 1.0], [-0.75, -1.0], [-2.5, -1.0]]#this is a constant used in tryCBeforMain
+getToCAngle = [[0.0, 315.0], [270.0, 225.0], [180.0, 135.0], [90.0, 45.0]]#this is a constant used in tryCBeforMain
+
+getToLeftBX = [0.0, 2.75, 0.0, -2.75]#this is a constant used in tryBLeftBeforMain
+getToLeftBY = [2.75, 0.0, -2.75, 0.0]#this is a constant used in tryBLeftBeforMain
+getToLeftBAngle = [270.0, 180.0, 90.0, 0.0]#this is a constant used in tryBLeftBeforMain
+
+getToRightBX = [-2.75, 0.0, 2.75, 0.0]#this is a constant used in tryBRightBeforMain
+getToRightBY = [0.0, 2.75, 0.0, -2.75]#this is a constant used in tryBRightBeforMain
+getToRightBAngle = [0.0, 270.0, 180.0, 90.0]#this is a constant used in tryBRightBeforMain
 
 
 
@@ -64,6 +77,8 @@ arenaAngle = 0.0
 estimatedArenaPositionX = 0.0
 estimatedArenaPositionY = 0.0
 estimatedArenaAngle = 0.0
+
+numberOfUnsuccessfullTurns = 0
 
 tokens = []
 otherRobots = []
@@ -94,31 +109,31 @@ maximumSeenOtherRobots = 4#this is the maximum number of robotMarkers that the r
 ###################################################################################################################
 
 class Token:
-	tokenMarker = None#this is an array of the known markers for a certain token
-	tokenMarkerArenaAngle = 0.0#this the lowest angle of the middle of a marker from this token (by adding 0, 90 ,180 or 270 you can get all the angles for the direction the markersa are facing)
-	tokenArenaPositionX = 0.0#this is the tokens middle
-	tokenArenaPositionY = 0.0#this is the tokens middle
-	tokenMarkerDirection = 'unassigned'#this is the direction the marker is facing ('up    'or'middle')
-	tokenType = 'unassigned'#this is the type of the token (a,b,c)
-	def __init__(self, tokenMarker, tokenMarkerArenaPositionX, tokenMarkerArenaPositionY, tokenMarkerArenaAngle, tokenMarkerDirection):#tokenMarkerArenaAngle is facing inward not outward
-		global tokenWidth
-		self.tokenMarker = tokenMarker
-		self.tokenMarkerArenaAngle = tokenMarkerArenaAngle%90.0
-		self.tokenMarkerDirection = tokenMarkerDirection
-		if tokenMarker.info.code > 31 and tokenMarker.info.code < 36:
-			self.tokenType = 'a'
-		elif tokenMarker.info.code > 35 and tokenMarker.info.code < 40:
-			self.tokenType = 'b'
-		elif tokenMarker.info.code == 40:
-			self.tokenType = 'c'
-		if tokenMarkerDirection == 'middle':
-			hypotenuse = tokenWidth
-			angle = math.radians(tokenMarkerArenaAngle)
-			self.tokenArenaPositionX = math.cos(angle)*hypotenuse+tokenMarkerArenaPositionX
-			self.tokenArenaPositionY = math.sin(angle)*hypotenuse+tokenMarkerArenaPositionY
-		else:#tokenMarkerDirection == 'up'
-			self.tokenArenaPositionX = tokenMarkerArenaPositionX
-			self.tokenArenaPositionY = tokenMarkerArenaPositionY
+    tokenMarker = None#this is an array of the known markers for a certain token
+    tokenMarkerArenaAngle = 0.0#this the lowest angle of the middle of a marker from this token (by adding 0, 90 ,180 or 270 you can get all the angles for the direction the markersa are facing)
+    tokenArenaPositionX = 0.0#this is the tokens middle
+    tokenArenaPositionY = 0.0#this is the tokens middle
+    tokenMarkerDirection = 'unassigned'#this is the direction the marker is facing ('up    'or'middle')
+    tokenType = 'unassigned'#this is the type of the token (a,b,c)
+    def __init__(self, tokenMarker, tokenMarkerArenaPositionX, tokenMarkerArenaPositionY, tokenMarkerArenaAngle, tokenMarkerDirection):#tokenMarkerArenaAngle is facing inward not outward
+        global tokenWidth
+        self.tokenMarker = tokenMarker
+        self.tokenMarkerDirection = tokenMarkerDirection
+        if tokenMarker.info.code > 31 and tokenMarker.info.code < 36:
+            self.tokenType = 'a'
+        elif tokenMarker.info.code > 35 and tokenMarker.info.code < 40:
+            self.tokenType = 'b'
+        elif tokenMarker.info.code == 40:
+            self.tokenType = 'c'
+        if tokenMarkerDirection == 'middle':
+            hypotenuse = tokenWidth
+            angle = math.radians(tokenMarkerArenaAngle)
+            self.tokenArenaPositionX = math.cos(angle)*hypotenuse+tokenMarkerArenaPositionX
+            self.tokenArenaPositionY = math.sin(angle)*hypotenuse+tokenMarkerArenaPositionY
+        else:#tokenMarkerDirection == 'up'
+            self.tokenArenaPositionX = tokenMarkerArenaPositionX
+            self.tokenArenaPositionY = tokenMarkerArenaPositionY
+        self.tokenMarkerArenaAngle = tokenMarkerArenaAngle%90.0
 
 
 class OtherRobot:
@@ -134,75 +149,42 @@ class OtherRobot:
 
 
 class CustomisedRuggeduino(Ruggeduino):
-    def readUS(self):#the rug reads the US and returns the distance measured in cm
+    def motorStatusRight(self):#the rug returns the number off right counts and resets them to 0
         with self.lock:
             resp=self.command("b")
-        return int(resp)
-    def forwardDrive(self):
+        try:
+            return int(resp)
+        except:
+            print "we are in customrug and in motorstaturright and in except. the robot tryed to return "+str(resp)+" as an int"
+            return 0
+    def motorStatusLeft(self):#the rug returns the number off left counts and resets them to 0
+        with self.lock:
+            resp=self.command("e")
+        try:
+            return int(resp)
+        except:
+            print "we are in customrug and in motorstatusleft and in except. the robot tryed to return "+str(resp)+" as an int"
+            return 0
+    def resetMotorStatus(self):#the rug resets the number off counts to 0
         with self.lock:
             resp=self.command("c")
         return
-    def backwardDrive(self):
+    def readUS(self):#the rug reads the US and returns the distance measured in cm
         with self.lock:
             resp=self.command("d")
-        return
-    def rightTurn(self):
-        with self.lock:
-            resp=self.command("e")
-        return
-    def leftTurn(self):
+        try:
+            return int(resp)
+        except:
+            print "we are in customrug and in readUS and in except. the robot tryed to return "+str(resp)+" as an int"
+            return 25
+    def setArmUp(self):#the rug sets the arms up
         with self.lock:
             resp=self.command("f")
         return
-    def tick5000(self):
+    def setArmDown(self):#the rug sets the arms down
         with self.lock:
             resp=self.command("g")
         return
-    def tick2000(self):
-        with self.lock:
-            resp=self.command("j")
-        return
-    def tick1000(self):
-        with self.lock:
-            resp=self.command("k")
-        return
-    def tick500(self):
-        with self.lock:
-            resp=self.command("m")
-        return
-    def tick200(self):
-        with self.lock:
-            resp=self.command("n")
-        return
-    def tick100(self):
-        with self.lock:
-            resp=self.command("q")
-        return
-    def tick50(self):
-        with self.lock:
-            resp=self.command("s")
-        return
-    def tick20(self):
-        with self.lock:
-            resp=self.command("t")
-        return
-    def tick10(self):
-        with self.lock:
-            resp=self.command("u")
-        return
-    def tick5(self):
-        with self.lock:
-            resp=self.command("w")
-        return
-    def tick2(self):
-        with self.lock:
-            resp=self.command("x")
-        return
-    def tick1(self):
-        with self.lock:
-            resp=self.command("y")
-        return
-    
 
 
 
@@ -210,96 +192,156 @@ class CustomisedRuggeduino(Ruggeduino):
 #Robot Controll:
 ###################################################################################################################
 
-def forwardDrive():
-    robot.ruggeduinos[0].forwardDrive()
+def motorStatusRight():
+    return my_arduino.motorStatusRight()
 
-def backwardDrive():
-    robot.ruggeduinos[0].backwardDrive()
+def motorStatusLeft():
+    return my_arduino.motorStatusLeft()
 
-def rightTurn():
-    robot.ruggeduinos[0].rightTurn()
+def resetMotorStatus():
+    my_arduino.resetMotorStatus()
 
-def leftTurn():
-    robot.ruggeduinos[0].leftTurn()
+def setLeftMotor(speed):
+    robot.motors[0].m0.power = speed*(-1)
 
-def setTicks(ticks):
-    while ticks > 5000:
-        robot.ruggeduinos[0].tick5000()
-        ticks -= 5000
-    while ticks > 2000:
-        robot.ruggeduinos[0].tick2000()
-        ticks -= 2000
-    while ticks > 1000:
-        robot.ruggeduinos[0].tick1000()
-        ticks -= 1000
-    while ticks > 500:
-        robot.ruggeduinos[0].tick500()
-        ticks -= 500
-    while ticks > 200:
-        robot.ruggeduinos[0].tick200()
-        ticks -= 200
-    while ticks > 100:
-        robot.ruggeduinos[0].tick100()
-        ticks -= 100
-    while ticks > 50:
-        robot.ruggeduinos[0].tick50()
-        ticks -= 50
-    while ticks > 20:
-        robot.ruggeduinos[0].tick20()
-        ticks -= 20
-    while ticks > 10:
-        robot.ruggeduinos[0].tick10()
-        ticks -= 10
-    while ticks > 5:
-        robot.ruggeduinos[0].tick5()
-        ticks -= 5
-    while ticks > 2:
-        robot.ruggeduinos[0].tick2()
-        ticks -= 2
-    while ticks > 1:
-        robot.ruggeduinos[0].tick1()
-        ticks -= 1
-    
+def setRightMotor(speed):
+    robot.motors[0].m1.power = speed*(-1)
 
 def drive(dist):#drives the robot forward or backward by dist
     global driveSpeed, robotWheelCircumfrence
-    ticks = int(abs(dist/robotWheelCircumfrence)*200.0*(5.0+(2.0/11.0)))
-    setTicks(ticks)
+    ticks = int(abs(dist/robotWheelCircumfrence)*3200)
+    resetMotorStatus()
+    alreadyDrivenTicks = 0
+    startTime = time.time()
+    maxDriveTime = int(ticks/6400)+1
+    print ticks
     if dist > 0:#driving forward
-        forwardDrive()
+        setLeftMotor(38)
+        setRightMotor(-35)
     else:#driving backward
-        backwardDrive()
-    time.sleep(ticks*0.002)
+        setLeftMotor(-38)
+        setRightMotor(35)
+    while alreadyDrivenTicks < ticks and alreadyDrivenTicks < 1000 and (time.time()-startTime) < 2.0:
+        alreadyDrivenTicks = alreadyDrivenTicks + abs(motorStatusRight())
+        time.sleep(0.01)
+    print alreadyDrivenTicks
+    if dist > 0:#driving forward
+        setLeftMotor(72)
+        setRightMotor(-70)
+    else:#driving backward
+        setLeftMotor(-75)
+        setRightMotor(70)
+    while alreadyDrivenTicks < ticks and (ticks-alreadyDrivenTicks) > 1000 and (time.time()-startTime) < maxDriveTime:
+        alreadyDrivenTicks = alreadyDrivenTicks + abs(motorStatusRight())
+        time.sleep(0.01)
+    print alreadyDrivenTicks
+    if dist > 0:#driving forward
+        setLeftMotor(36)
+        setRightMotor(-35)
+    else:#driving backward
+        setLeftMotor(-38)
+        setRightMotor(35)
+    while alreadyDrivenTicks < ticks and (time.time()-startTime) < maxDriveTime:
+        alreadyDrivenTicks = alreadyDrivenTicks + abs(motorStatusRight())
+        time.sleep(0.01)
+    print alreadyDrivenTicks
+    if dist > 0:#breaking
+        setLeftMotor(-35)
+        setRightMotor(35)
+    else:#breaking
+        setLeftMotor(35)
+        setRightMotor(-35)
+    time.sleep(0.05)
+    robot.motors[0].m0.power = 0
+    robot.motors[0].m1.power = 0
     estimateArenaPosition(dist, 0.0)
-    time.sleep(0.25)
+    time.sleep(0.5)
 
 def turn(angle):#turns the robot by an angle in degrees (+ = left) or (- = right)
-    global turnSpeed, robotCircumfrence, robotWheelCircumfrence
-    ticks = int(abs((angle/360.0*robotCircumfrence)/robotWheelCircumfrence)*200.0*(5.0+(2.0/11.0)))
-    setTicks(ticks)
+    global turnSpeed, robotCircumfrence, robotWheelCircumfrence, numberOfUnsuccessfullTurns
+    ticks = int(abs((angle/360.0*robotCircumfrence)/robotWheelCircumfrence)*3200)
+    ticks = ticks*2#this is because were reading out both motors and getting the average between 2 int values is not a good solution in this case
+    resetMotorStatus()
+    alreadyDrivenTicks = 0
+    startTime = time.time()
+    print ticks
     if angle > 0:#turning left (counterclockwise)
-        leftTurn()
+        setLeftMotor(-35)
+        setRightMotor(-35)
     else:#turning right (clockwise)
-        rightTurn()
-    time.sleep(ticks*0.002)
+        setLeftMotor(35)
+        setRightMotor(35)
+    while alreadyDrivenTicks < ticks and alreadyDrivenTicks < 1000 and (time.time()-startTime) < 0.5:
+        alreadyDrivenTicks = alreadyDrivenTicks + abs(motorStatusRight()) + abs(motorStatusLeft())
+        time.sleep(0.01)
+    print alreadyDrivenTicks
+    if angle > 0:#turning left (counterclockwise)
+        setLeftMotor(-45)
+        setRightMotor(-45)
+    else:#turning right (clockwise)
+        setLeftMotor(45)
+        setRightMotor(45)
+    while alreadyDrivenTicks < ticks and (ticks-alreadyDrivenTicks) > 1000 and (time.time()-startTime) < 3.0:
+        alreadyDrivenTicks = alreadyDrivenTicks + abs(motorStatusRight()) + abs(motorStatusLeft())
+        time.sleep(0.01)
+    print alreadyDrivenTicks
+    if angle > 0:#turning left (counterclockwise)
+        setLeftMotor(-35)
+        setRightMotor(-35)
+    else:#turning right (clockwise)
+        setLeftMotor(35)
+        setRightMotor(35)
+    while alreadyDrivenTicks < ticks and (time.time()-startTime) < 3.0:
+        alreadyDrivenTicks = alreadyDrivenTicks + abs(motorStatusRight()) + abs(motorStatusLeft())
+        time.sleep(0.01)
+    print alreadyDrivenTicks
+    if angle > 0:#breaking
+        setLeftMotor(35)
+        setRightMotor(35)
+    else:#breaking
+        setLeftMotor(-35)
+        setRightMotor(-35)
+    time.sleep(0.05)
+    robot.motors[0].m0.power = 0
+    robot.motors[0].m1.power = 0
+    if angle > 0 and alreadyDrivenTicks < ticks:#turning left (counterclockwise)
+        numberOfUnsuccessfullTurns += 1
+    elif angle <= 0 and alreadyDrivenTicks < ticks:#turning right (clockwise)
+        numberOfUnsuccessfullTurns -= 1
+    if numberOfUnsuccessfullTurns > 1:
+        setLeftMotor(35)
+        setRightMotor(-60)
+        time.sleep(2)
+        setLeftMotor(0)
+        setRightMotor(0)
+        numberOfUnsuccessfullTurns = 0
+    if numberOfUnsuccessfullTurns < -1:
+        setLeftMotor(60)
+        setRightMotor(-35)
+        time.sleep(2)
+        setLeftMotor(0)
+        setRightMotor(0)
+        numberOfUnsuccessfullTurns = 0
     estimateArenaAngle(angle)
-    time.sleep(0.25)
+    time.sleep(0.5)
 
-def arm(state):#sets the arm "up", "down" or "middle"
+def arm(state):#sets the arm "up" or "down"
     if state == "down":
-        robot.servos[0][0] = 100
-        robot.servos[0][1] = -100
-    elif state == "middle":
-        robot.servos[0][0] = 10
-        robot.servos[0][1] = -10
+        my_arduino.setArmDown()
+        time.sleep(2)
+        turn(10)
+        turn(-20)
+        drive(-0.1)
     elif state == "up":
-        robot.servos[0][0] = -50
-        robot.servos[0][1] = 50
+        my_arduino.setArmUp()
+        time.sleep(2)
     else:
         print "Someone told the robot to move " + str(state) + " whatever that means. :P"
 
 def readUS():#reads the US and returns the distance measured in meters
-    return (robot.ruggeduinos[0].readUS())/100.0
+    tmp = (my_arduino.readUS())/100.0
+    print "The US-Sensor read " + str(tmp)
+    return tmp
 
 
 
@@ -343,7 +385,7 @@ def sortMarkersByDistance(theMarkers):#DO NOT USE!!! sorts and returns an array 
 
 def calculateArenaAngle(arenaMarker):#DO NOT USE!!! calculates and sets the global variable (arenaAngle) based on a marker (arenaMarker)
     global arenaAngle, estimatedArenaAngle
-    robotToMarkerAngle = arenaMarker.orientation.rot_y-arenaMarker.centre.polar.rot_y
+    robotToMarkerAngle = arenaMarker.orientation.rot_y+arenaMarker.centre.polar.rot_y
     markerNumber = arenaMarker.info.code
     absoluteAngle = 0
     if markerNumber < 7 and markerNumber >= 0:
@@ -359,6 +401,7 @@ def calculateArenaAngle(arenaMarker):#DO NOT USE!!! calculates and sets the glob
     absoluteAngle = (absoluteAngle+360.0)%360.0
     arenaAngle = absoluteAngle
     estimatedArenaAngle = arenaAngle
+    print arenaMarker.info.code
 
 def calculateArenaPosition(arenaMarker):#DO NOT USE!!! calculates and sets the global variables (arenaPositionX, arenaPositionY) based on a marker (arenaMarker)
     global arenaPositionX, arenaPositionY, estimatedArenaPositionX, estimatedArenaPositionY, arenaMarkerConstantX, arenaMarkerConstantY
@@ -385,6 +428,7 @@ def calculateArenaPosition(arenaMarker):#DO NOT USE!!! calculates and sets the g
     arenaPositionY = relativY+arenaMarkerConstantY[markerNumber]
     estimatedArenaPositionX = arenaPositionX
     estimatedArenaPositionY = arenaPositionY
+    print arenaMarker.info.code
 
 def calculateTokenMarkerPositions(tokenMarkers):#DO NOT USE!!! calculates and returns 4 arrays (tokenMarkerArenaPositionsX, tokenMarkerArenaPositionsY, tokenMarkerArenaAngles(this is facing inward not outward), tokenMarkerDirections('up'or'middle')) based on an array (tokenMarkers)
     global estimatedArenaAngle, estimatedArenaPositionX, estimatedArenaPositionY, tokenTiltTolerance
@@ -402,7 +446,6 @@ def calculateTokenMarkerPositions(tokenMarkers):#DO NOT USE!!! calculates and re
         tokenMarkerArenaAngles.append((((math.degrees(angle))-oneTokenMarker.orientation.rot_y)+360.0)%360.0)
         if oneTokenMarker.orientation.rot_x < 0.0+tokenTiltTolerance and oneTokenMarker.orientation.rot_x > 0.0-tokenTiltTolerance:
             tokenMarkerDirections.append('middle')
-            
         else:
             tokenMarkerDirections.append('up    ')
     return tokenMarkerArenaPositionsX, tokenMarkerArenaPositionsY, tokenMarkerArenaAngles, tokenMarkerDirections#tokenMarkerArenaAngles is facing inwards not outwards
@@ -432,7 +475,8 @@ def updateTargetingToken():#DO NOT USE!!! if there is a targetingToken and a new
             if targetingToken.tokenMarker.info.code == oneToken.tokenMarker.info.code:
                 targetingToken = oneToken
                 print "updated targetingToken"
-                return
+                return True
+    return False
 
 def calculateRobotMarkerPositions(robotMarkers):#DO NOT USE!!! calculates and returns 4 arrays (robotMarkerArenaPositionX, robotMarkerArenaPositionY, robotMarkerArenaAngle(this is facing inward not outward), robotMarkerCorner) based on an array (robotMarkers)
     global estimateArenaAngle, estimatedArenaPositionX, estimatedArenaPositionY
@@ -458,7 +502,7 @@ def makeRobots(robotArenaPositionsX, robotArenaPositionsY, robotMarkerArenaAngle
         newOtherRobots.append(OtherRobot(robotArenaPositionsX[robotMarkerNumber], robotArenaPositionsY[robotMarkerNumber], robotMarkerArenaAngles[robotMarkerNumber], robotCorners[robotMarkerNumber]))
     otherRobots = newOtherRobots
 
-def takeAndProcessPicture():#takes a picture, calculates the important variables and returns 3 booleans. if they are true there was a new markers of that type. if they are wrong then not
+def takeAndProcessPictureOld():#takes a picture, calculates the important variables and returns 3 booleans. if they are true there was a new markers of that type. if they are wrong then not
     global otherRobots, tokens
     markers = sortMarkersByType(takePicture())
     arenaMarkers = sortMarkersByDistance(markers[0])
@@ -467,6 +511,7 @@ def takeAndProcessPicture():#takes a picture, calculates the important variables
     seenArenaMarker = False
     seenTokenMarker = False
     seenRobotMarker = False
+    updatedTargetingToken = False
     if len(arenaMarkers) != 0:
         calculateArenaAngle(arenaMarkers[0])
         calculateArenaPosition(arenaMarkers[0])
@@ -474,7 +519,7 @@ def takeAndProcessPicture():#takes a picture, calculates the important variables
     if len(tokenMarkers) != 0:
         tokenMarkersInformation = calculateTokenMarkerPositions(tokenMarkers)
         makeTokens(tokenMarkers, tokenMarkersInformation[0], tokenMarkersInformation[1], tokenMarkersInformation[2], tokenMarkersInformation[3])
-        updateTargetingToken()
+        updatedTargetingToken = updateTargetingToken()
         seenTokenMarker = True
     else:
         clearTokens = []
@@ -487,7 +532,120 @@ def takeAndProcessPicture():#takes a picture, calculates the important variables
         clearOtherRobots = []
         otherRobots = clearOtherRobots
     debugging()
-    return seenArenaMarker, seenTokenMarker, seenRobotMarker
+    return seenArenaMarker, seenTokenMarker, seenRobotMarker, updatedTargetingToken
+
+def takeAndProcessPicture():#this is just wrong (i hate having to do this)
+    global otherRobots, tokens
+    markers = sortMarkersByType(takePicture())
+    arenaMarkers = sortMarkersByDistance(markers[0])
+    tokenMarkers = sortMarkersByDistance(markers[1])
+    robotMarkers = sortMarkersByDistance(markers[2])
+    seenArenaMarker = False
+    seenTokenMarker = False
+    seenRobotMarker = False
+    updatedTargetingToken = False
+    if len(arenaMarkers) != 0 and arenaMarkers[0].dist < 6.0:
+        calculateArenaAngle(arenaMarkers[0])
+        calculateArenaPosition(arenaMarkers[0])
+        seenArenaMarker = True
+    if len(tokenMarkers) != 0:
+        tokenMarkersInformation = calculateTokenMarkerPositions(tokenMarkers)
+        makeTokens(tokenMarkers, tokenMarkersInformation[0], tokenMarkersInformation[1], tokenMarkersInformation[2], tokenMarkersInformation[3])
+        updatedTargetingToken = updateTargetingToken()
+        seenTokenMarker = True
+    else:
+        clearTokens = []
+        tokens = clearTokens
+    if len(robotMarkers) != 0:
+        robotMarkersInformation = calculateRobotMarkerPositions(robotMarkers)
+        makeRobots(robotMarkersInformation[0], robotMarkersInformation[1], robotMarkersInformation[2], robotMarkersInformation[3])
+        seenRobotMarker = True
+    else:
+        clearOtherRobots = []
+        otherRobots = clearOtherRobots
+    debugging()
+    return seenArenaMarker, seenTokenMarker, seenRobotMarker, updatedTargetingToken
+
+def takeAndProcessPictureSepcial():#WARNING! THIS THING IGNORES ARENA MARKERS... this is just wrong (i hate having to do this)
+    global otherRobots, tokens, otherRobots
+    markers = sortMarkersByType(takePicture())
+    tokenMarkers = sortMarkersByDistance(markers[1])
+    robotMarkers = sortMarkersByDistance(markers[2])
+    seenArenaMarker = False
+    seenTokenMarker = False
+    seenRobotMarker = False
+    updatedTargetingToken = False
+    if len(tokenMarkers) != 0:
+        tokenMarkersInformation = calculateTokenMarkerPositions(tokenMarkers)
+        makeTokens(tokenMarkers, tokenMarkersInformation[0], tokenMarkersInformation[1], tokenMarkersInformation[2], tokenMarkersInformation[3])
+        seenTokenMarker = True
+        print "0 token"
+    else:
+        clearTokens = []
+        tokens = clearTokens
+    if len(robotMarkers) != 0:
+        robotMarkersInformation = calculateRobotMarkerPositions(robotMarkers)
+        makeRobots(robotMarkersInformation[0], robotMarkersInformation[1], robotMarkersInformation[2], robotMarkersInformation[3])
+        seenRobotMarker = True
+    else:
+        clearOtherRobots = []
+        otherRobots = clearOtherRobots
+    fristTokens = tokens
+    fristOtherRobots = otherRobots
+    turn(20)
+    markers = sortMarkersByType(takePicture())
+    tokenMarkers = sortMarkersByDistance(markers[1])
+    robotMarkers = sortMarkersByDistance(markers[2])
+    if len(tokenMarkers) != 0:
+        tokenMarkersInformation = calculateTokenMarkerPositions(tokenMarkers)
+        makeTokens(tokenMarkers, tokenMarkersInformation[0], tokenMarkersInformation[1], tokenMarkersInformation[2], tokenMarkersInformation[3])
+        seenTokenMarker = True
+        print "20 token"
+    else:
+        clearTokens = []
+        tokens = clearTokens
+    if len(robotMarkers) != 0:
+        robotMarkersInformation = calculateRobotMarkerPositions(robotMarkers)
+        makeRobots(robotMarkersInformation[0], robotMarkersInformation[1], robotMarkersInformation[2], robotMarkersInformation[3])
+        seenRobotMarker = True
+    else:
+        clearOtherRobots = []
+        otherRobots = clearOtherRobots
+    secondTokens = tokens
+    secondOtherRobots = otherRobots
+    turn(-40)
+    markers = sortMarkersByType(takePicture())
+    tokenMarkers = sortMarkersByDistance(markers[1])
+    robotMarkers = sortMarkersByDistance(markers[2])
+    if len(tokenMarkers) != 0:
+        tokenMarkersInformation = calculateTokenMarkerPositions(tokenMarkers)
+        makeTokens(tokenMarkers, tokenMarkersInformation[0], tokenMarkersInformation[1], tokenMarkersInformation[2], tokenMarkersInformation[3])
+        seenTokenMarker = True
+        print "-40 token"
+    else:
+        clearTokens = []
+        tokens = clearTokens
+    if len(robotMarkers) != 0:
+        robotMarkersInformation = calculateRobotMarkerPositions(robotMarkers)
+        makeRobots(robotMarkersInformation[0], robotMarkersInformation[1], robotMarkersInformation[2], robotMarkersInformation[3])
+        seenRobotMarker = True
+    else:
+        clearOtherRobots = []
+        otherRobots = clearOtherRobots
+    thridTokens = tokens
+    thirdOtherRobots = otherRobots
+    tokens = addArray(addArray(fristTokens, secondTokens), thridTokens)
+    otherRobots = addArray(addArray(fristOtherRobots, secondOtherRobots), thirdOtherRobots)
+    if len(tokens) != 0:
+        updatedTargetingToken = updateTargetingToken()
+    debugging()
+    return seenArenaMarker, seenTokenMarker, seenRobotMarker, updatedTargetingToken
+
+def addArray(array1, array2):
+    for x in range(0, len(array2)):
+        array1.append(array2[x])
+    return array1
+
 
 
 def estimateArenaAngle(angle):#calculates and sets the estimatedArenaAngle based on an angle (turningangle)
@@ -509,7 +667,7 @@ def estimateArenaPosition(distance, relativAngle):#calculates and sets the estim
 def calculatePointToPoint(XFrom, YFrom, XTo, YTo):#calculates and returns the distance between 2 points and the absolute angle relative to the arena
 	XDist = XTo-XFrom
 	YDist = YTo-YFrom
-	hypotenuse = math.sqrt(( XDist*XDist)+(YDist*YDist))
+	hypotenuse = math.sqrt((XDist*XDist)+(YDist*YDist))
 	if XDist == 0 and YDist > 0:
 		return hypotenuse, 90.0
 	elif XDist == 0 and YDist < 0:
@@ -519,11 +677,11 @@ def calculatePointToPoint(XFrom, YFrom, XTo, YTo):#calculates and returns the di
 	angle = math.degrees(math.atan(YDist/XDist))
 	if XDist > 0 and YDist > 0:
 		angle += 0.0
-	elif XDist > 0 and YDist > 0:
+	elif XDist < 0 and YDist > 0:
 		angle += 180.0
-	elif XDist > 0 and YDist > 0:
+	elif XDist < 0 and YDist < 0:
 		angle += 180.0
-	elif XDist > 0 and YDist > 0:
+	elif XDist > 0 and YDist < 0:
 		angle += 360.0
 	return hypotenuse, angle
 
@@ -533,7 +691,7 @@ def countScore():#this methode calculates the amount of points we currently have
     ourNewScore = 0
     for oneSecuredToken in securedTokens:
         ourNewScore += 1 
-        if oneSecuredToken > 35 and oneSecuredToken > 40 and hasA == True:
+        if oneSecuredToken > 35 and oneSecuredToken < 40 and hasA == True:
             ourNewScore += 1
         elif oneSecuredToken == 40 and hasA == True and hasB == True:
             ourNewScore += 2
@@ -680,29 +838,43 @@ def storeToken():#secures the token
     if robotZone == -1:
         print "The robot does not know its own zone and can therefor not store a token in it."
     else:
-        if len(securedTokens) > 5:
-            turn(3600000000000000.0)
-        else:
-            driveTo(zoneSecureTokenX[robotZone][len(securedTokens)], zoneSecureTokenY[robotZone][len(securedTokens)], zoneSecureTokenAngle[robotZone][len(securedTokens)])
-            arm("middle")
-            drive(0.2)
-            holdingToSecuredToken()
+        driveTo(zoneSecureTokenX[robotZone], zoneSecureTokenY[robotZone], zoneSecureTokenAngle[robotZone])
+        arm("up")
+        drive(-0.5)
+        drive(0.5)
+        holdingToSecuredToken()
 
 def findToken():#makes sure that the robot sees at least one token, by first turning to the (based on adjustPostions position) best options for finding a token and then turning in 30 degree intervals
-    tmp = takeAndProcessPicture()
-    if tmp[1] == True:
+    takeAndProcessPictureSepcial()
+    if len(tokens) != 0:
+        return
+    turn(80.0)
+    takeAndProcessPictureSepcial()
+    if len(tokens) != 0:
+        return
+    turn(-100.0)
+    takeAndProcessPictureSepcial()
+    if len(tokens) != 0:
+        return
+    while len(tokens) == 0:
+        turn(-40.0)
+        takeAndProcessPictureSepcial()
+
+def findTokenSepcial():#makes sure that the robot sees at least one token, by first turning to the (based on adjustPostions position) best options for finding a token and then turning in 30 degree intervals
+    takeAndProcessPicture()
+    if len(tokens) != 0:
         return
     turn(24.0)
-    tmp = takeAndProcessPicture()
-    if tmp[1] == True:
+    takeAndProcessPicture()
+    if len(tokens) != 0:
         return
     turn(-45.0)
-    tmp = takeAndProcessPicture()
-    if tmp[1] == True:
+    takeAndProcessPicture()
+    if len(tokens) != 0:
         return
-    while tmp[1] == False:
+    while len(tokens) == 0:
         turn(-30.0)
-        tmp = takeAndProcessPicture()
+
 
 def findPosition():#makes sure that the robot sees at least one arenaMarker, by turning in 30 degree intervals
     tmp = takeAndProcessPicture()
@@ -714,19 +886,145 @@ def driveToToken():#drives the robot to 40cm befor the position of the token
     global targetingToken, estimatedArenaPositionY, targetingToken
     driveBy = calculatePointToPoint(estimatedArenaPositionX, estimatedArenaPositionY, targetingToken.tokenArenaPositionX, targetingToken.tokenArenaPositionY)
     angleTo(driveBy[1])
-    drive(driveBy[0]-0.40)
+    if driveBy[0] > 1.75:
+        drive(driveBy[0]-1.75)
+        tmp = takeAndProcessPicture()
+        if tmp[3] == True:#successfull
+            driveBy = calculatePointToPoint(estimatedArenaPositionX, estimatedArenaPositionY, targetingToken.tokenArenaPositionX, targetingToken.tokenArenaPositionY)
+            angleTo(driveBy[1])
+            if driveBy[0] > 1.0:
+                drive(driveBy[0]-1.0)
+            if driveBy[0] < 0.55:
+                drive(driveBy[0]-0.55)
+            return True
+        turn(20)
+        tmp = takeAndProcessPicture()
+        if tmp[3] == True:#successfull
+            driveBy = calculatePointToPoint(estimatedArenaPositionX, estimatedArenaPositionY, targetingToken.tokenArenaPositionX, targetingToken.tokenArenaPositionY)
+            angleTo(driveBy[1])
+            if driveBy[0] > 1.0:
+                drive(driveBy[0]-1.0)
+            if driveBy[0] < 0.55:
+                drive(driveBy[0]-0.55)
+            return True
+        turn(-40)
+        tmp = takeAndProcessPicture()
+        if tmp[3] == True:#successfull
+            driveBy = calculatePointToPoint(estimatedArenaPositionX, estimatedArenaPositionY, targetingToken.tokenArenaPositionX, targetingToken.tokenArenaPositionY)
+            angleTo(driveBy[1])
+            if driveBy[0] > 1.0:
+                drive(driveBy[0]-1.0)
+            if driveBy[0] < 0.55:
+                drive(driveBy[0]-0.55)
+            return True
+        return False
+    else:
+        drive(driveBy[0]-1.0)
+        return True
 
 def catchToken():#catches the token and returns True if it caught a token and False if there was no token there
     global targetingToken
-    turn(180.0)
-    drive(-0.45)
-    if readUS() > 0.15:
-        targetingToken = None
+    tmp = takeAndProcessPicture()
+    if tmp[3] == True:#successfull
+        driveBy = calculatePointToPoint(estimatedArenaPositionX, estimatedArenaPositionY, targetingToken.tokenArenaPositionX, targetingToken.tokenArenaPositionY)
+        angleTo(driveBy[1]+180)
+        drive(-1.15)
+        drive(0.03)
+        if readUS() <= 0.35:#when the arms are down and there is no token the distance will be 0.46, when there is a token however the distance will be 0.15 maximum
+            drive(-0.1)
+            arm("down")
+            targetingToHoldingToken()
+            print "cought a token"
+            return True
+        turn(15)
+        time.sleep(0.5)
+        if readUS() <= 0.35:#when the arms are down and there is no token the distance will be 0.46, when there is a token however the distance will be 0.15 maximum
+            drive(-0.1)
+            arm("down")
+            targetingToHoldingToken()
+            print "cought a token"
+            return True
+        turn(-30)
+        time.sleep(0.5)
+        if readUS() > 0.35:#when the arms are down and there is no token the distance will be 0.46, when there is a token however the distance will be 0.15 maximum
+            targetingToken = None
+            print "didnt catch a token"
+            return False
+        else:
+            drive(-0.1)
+            arm("down")
+            targetingToHoldingToken()
+            print "cought a token"
+            return True
+    turn(20)
+    tmp = takeAndProcessPicture()
+    if tmp[3] == True:#successfull
+        driveBy = calculatePointToPoint(estimatedArenaPositionX, estimatedArenaPositionY, targetingToken.tokenArenaPositionX, targetingToken.tokenArenaPositionY)
+        angleTo(driveBy[1]+180)
+        drive(-1.15)
+        drive(0.03)
+        if readUS() <= 0.35:#when the arms are down and there is no token the distance will be 0.46, when there is a token however the distance will be 0.15 maximum
+            drive(-0.1)
+            arm("down")
+            targetingToHoldingToken()
+            print "cought a token"
+            return True
+        turn(15)
+        time.sleep(0.5)
+        if readUS() <= 0.35:#when the arms are down and there is no token the distance will be 0.46, when there is a token however the distance will be 0.15 maximum
+            drive(-0.1)
+            arm("down")
+            targetingToHoldingToken()
+            print "cought a token"
+            return True
+        turn(-30)
+        time.sleep(0.5)
+        if readUS() > 0.35:#when the arms are down and there is no token the distance will be 0.46, when there is a token however the distance will be 0.15 maximum
+            targetingToken = None
+            print "didnt catch a token"
+            return False
+        else:
+            drive(-0.1)
+            arm("down")
+            targetingToHoldingToken()
+            print "cought a token"
+            return True
+    turn(-40)
+    tmp = takeAndProcessPicture()
+    if tmp[3] == True:#successfull
+        driveBy = calculatePointToPoint(estimatedArenaPositionX, estimatedArenaPositionY, targetingToken.tokenArenaPositionX, targetingToken.tokenArenaPositionY)
+        angleTo(driveBy[1]+180)
+        drive(-1.15)
+        drive(0.03)
+        if readUS() <= 0.35:#when the arms are down and there is no token the distance will be 0.46, when there is a token however the distance will be 0.15 maximum
+            drive(-0.1)
+            arm("down")
+            targetingToHoldingToken()
+            print "cought a token"
+            return True
+        turn(15)
+        time.sleep(0.5)
+        if readUS() <= 0.35:#when the arms are down and there is no token the distance will be 0.46, when there is a token however the distance will be 0.15 maximum
+            drive(-0.1)
+            arm("down")
+            targetingToHoldingToken()
+            print "cought a token"
+            return True
+        turn(-30)
+        time.sleep(0.5)
+        if readUS() > 0.35:#when the arms are down and there is no token the distance will be 0.46, when there is a token however the distance will be 0.15 maximum
+            targetingToken = None
+            print "didnt catch a token"
+            return False
+        else:
+            drive(-0.1)
+            arm("down")
+            targetingToHoldingToken()
+            print "cought a token"
+            return True
+    else:#fail
+        print "somehow the code got to catchToken() but the targetingToken is now not visible anymore"
         return False
-    else:
-        arm("down")
-        targetingToHoldingToken()
-        return True
 
 
 
@@ -790,12 +1088,15 @@ def debugging():#shows the important debugging values on the tablet
 #Main:
 ###################################################################################################################
 
-def main():#this method manages everything, just read it
-    global robotZone, state, caughtToken
+def setupTheRobot():
+    global robotZone, state
     robotZone = robot.zone
-    caughtToken = False
     debugging()
-    findPosition()
+    state = "targeting"
+    drive(1.0)
+
+def main():#this method manages everything, just read it
+    global state
     while True:
         if state == "beginning":
             adjustPosition()
@@ -804,27 +1105,94 @@ def main():#this method manages everything, just read it
         elif state == "targeting":
             findToken()
             chooseTargetingToken()
-            driveToToken()
-            state = "collecting"
+            processSuccessful = driveToToken()
+            if processSuccessful == True:
+                state = "collecting"
+            else:
+                targetingToken = None
+                state = "beginning"
             debugging()
         elif state == "collecting":
-            caughtToken = catchToken()
-            if caughtToken == True:
+            processSuccessful = catchToken()
+            if processSuccessful == True:
                 state = "securing"
             else:
-                takeAndProcessPicture()
-                state == "beginning"
-            debugging()
+                targetingToken = None
+                state = "beginning"
+            findPosition()
         elif state == "securing":
-            takeAndProcessPicture()
             driveToZone()
-            state == "store"
+            state = "store"
             debugging()
         elif state == "store":
-            takeAndProcessPicture()
+            findPosition()
             storeToken()
-            state == "beginning"
+            drive(0.5)
+            turn(-110)
+            findPosition()
+            state = "beginning"
             debugging()
+
+def tryCBeforMain():
+    global robotZone, getToCX, getToCY, getToCAngle, hasA, hasB, state
+    robotZone = robot.zone
+    debugging()
+    findPosition()
+    driveTo(getToCX[robotZone][0], getToCY[robotZone][0], getToCAngle[robotZone][0])
+    driveTo(getToCX[robotZone][1], getToCY[robotZone][1], getToCAngle[robotZone][1])
+    hasA = True
+    hasB= True
+    findToken()
+    chooseTargetingToken()
+    hasA = False
+    hasB= False
+    processSuccessful = driveToToken()
+    if processSuccessful == True:
+        state = "collecting"
+    else:
+        targetingToken = None
+        state = "beginning"
+    debugging()
+
+def tryBLeftBeforMain():
+    global robotZone, getToLeftBX, getToLeftBY, getToLeftBAngle, hasA, state
+    robotZone = robot.zone
+    debugging()
+    drive(1)
+    turn(110)
+    findPosition()
+    driveTo(getToLeftBX[robotZone], getToLeftBY[robotZone], getToLeftBAngle[robotZone])
+    hasA = True
+    findToken()
+    chooseTargetingToken()
+    hasA = False
+    processSuccessful = driveToToken()
+    if processSuccessful == True:
+        state = "collecting"
+    else:
+        targetingToken = None
+        state = "beginning"
+    debugging()
+
+def tryBRightBeforMain():
+    global robotZone, getToRightBX, getToRightBY, getToRightBAngle, hasA, state
+    robotZone = robot.zone
+    debugging()
+    drive(1)
+    turn(-110)
+    findPosition()
+    driveTo(getToRightBX[robotZone], getToRightBY[robotZone], getToRightBAngle[robotZone])
+    hasA = True
+    findToken()
+    chooseTargetingToken()
+    hasA = False
+    processSuccessful = driveToToken()
+    if processSuccessful == True:
+        state = "collecting"
+    else:
+        targetingToken = None
+        state = "beginning"
+    debugging()
 
 
 
@@ -834,20 +1202,63 @@ def main():#this method manages everything, just read it
 
 robot = Robot.setup()
 robot.ruggeduino_set_handler_by_fwver("SRcustom", CustomisedRuggeduino)
+#Big thanks to Rich and Peter from the Blueshirts for helping us with our Arduino
+try:
+    my_arduino_id = "AI02PITD"
+    dev = next(iter(pyudev.Context().list_devices( ID_SERIAL_SHORT = my_arduino_id, subsystem="tty" )))
+    my_arduino = CustomisedRuggeduino(dev.device_node, my_arduino_id )
+except:
+    print "!!!The Arduino is not connected or working!!!"
+#Thanks a lot!!!
 robot.init()
-#arm("up")
 robot.wait_start()
-#main()
 
 #robot = Robot()
 print "start"
-setTicks(1000)
-forwardDrive()
-time.sleep(10)
-print "firstdone"
-setTicks(13556)
-leftTurn()
+
+#setupTheRobot()
+#tryCBeforMain()
+#tryBLeftBeforMain()
+tryBRightBeforMain()
+main()
+
+#drive(1)
+#time.sleep(1)
+#drive(-1)
+#time.sleep(1)
+#drive(3)
+#time.sleep(1)
+#drive(-3)
+#time.sleep(1)
+#turn(180)
+#time.sleep(1)
+#turn(-180)
+#time.sleep(1)
+#turn(90)
+#time.sleep(1)
+#turn(-90)
+
+#while True:
+#    readUS()
+#    time.sleep(0.5)
+
+#findToken()
+#chooseTargetingToken()
+#processSuccessful = driveToToken()
+#if processSuccessful == True:
+#    print "worked"
+#    processSuccessful = catchToken()
+#    if processSuccessful == True:
+#        print "got it"
+#    else:
+#        print "didn't catch it :'("
+#else:
+#    print "didn't work"
+#    targetingToken = None
+
 print "end"
+
+
 
 
 

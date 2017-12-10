@@ -1,35 +1,40 @@
 #include <Arduino.h>
+#include <PinChangeInt.h>
+#include <Servo.h>
 
 // We communicate with the power board at 115200 baud.
 #define SERIAL_BAUD 115200
 
 #define FW_VER 0
 
-const int rightStepPin = 2;
-const int rightDirPin = 3;
-const int leftStepPin = 4;
-const int leftDirPin = 5;
+#define USPWM 5
+#define USTrigger 4
+#define interruptRightOne 6
+#define interruptRightTwo 7
+#define interruptLeftOne 2
+#define interruptLeftTwo 3
+volatile int counterRight = 0;
+volatile int counterLeft = 0;
 
-int trig = 7;//COMP/TRIG auf US
-int pwm = 8;//PWM auf US
-
-unsigned int ticks = 0;
-
-uint8_t EnPwmCmd[4]={0x44,0x02,0xbb,0x01};    // distance measure command[copy-paste]
+Servo servoA;//instance of Servo
+Servo servoB;
 
 void setup() {
+  servoA.attach(9, 500, 2500);//attaches the servo(pin, min, max)
+  servoB.attach(10, 500, 2500);
+  setArm(0);
   Serial.begin(SERIAL_BAUD);
-  pinMode(rightStepPin, OUTPUT);
-  pinMode(rightDirPin, OUTPUT);
-  pinMode(leftStepPin, OUTPUT);
-  pinMode(leftDirPin, OUTPUT);
-  pinMode(trig, OUTPUT);
-  pinMode(pwm, INPUT);
-  digitalWrite(trig, HIGH);
-  for(int i=0;i<4;i++)
-  {
-      Serial.write(EnPwmCmd[i]);
-  } 
+  pinMode(USTrigger, OUTPUT);
+  pinMode(USPWM, INPUT);
+  digitalWrite(USTrigger, HIGH);
+  //pinMode(interruptRightOne, INPUT); this makes everything stop working
+  //PCintPort::attachInterrupt(digitalPinToInterrupt(interruptRightOne), interruptRightA, CHANGE); this makes everything stop working
+  //pinMode(interruptRightTwo, INPUT); this makes everything stop working
+  //PCintPort::attachInterrupt(digitalPinToInterrupt(interruptRightTwo), interruptRightB, CHANGE); this makes everything stop working
+  PCintPort::attachInterrupt(interruptRightOne, interruptRightA, CHANGE);
+  PCintPort::attachInterrupt(interruptRightTwo, interruptRightB, CHANGE);
+  PCintPort::attachInterrupt(interruptLeftOne, interruptLeftA, CHANGE);
+  PCintPort::attachInterrupt(interruptLeftTwo, interruptLeftB, CHANGE);
 }
 
 int read_pin() {
@@ -66,55 +71,51 @@ void command_mode(int mode) {
   pinMode(pin, mode);
 }
 
-void rightTurn()
-{
-  digitalWrite(rightDirPin, HIGH);
-  digitalWrite(leftDirPin, HIGH);
-  tick();
-}
-
-void leftTurn()
-{
-  digitalWrite(rightDirPin, LOW);
-  digitalWrite(leftDirPin, LOW);
-  tick();
-}
-
-void forwardDrive()
-{
-  digitalWrite(rightDirPin, HIGH);
-  digitalWrite(leftDirPin, LOW);
-  tick();
-}
-
-void backwardDrive()
-{
-  digitalWrite(rightDirPin, LOW);
-  digitalWrite(leftDirPin, HIGH);
-  tick();
-}
-
-void tick()
-{
-  int x = 0;
-  while(x < ticks)
-  {
-    digitalWrite(rightStepPin, HIGH);
-    digitalWrite(leftStepPin, HIGH);
-    delayMicroseconds(1000);
-    digitalWrite(rightStepPin, LOW);
-    digitalWrite(leftStepPin, LOW);
-    delayMicroseconds(1000);
-    x = x+1;
+void interruptRightA(){
+  int a = digitalRead(interruptRightOne);
+  int b = digitalRead(interruptRightTwo);
+  if(a == HIGH && b == LOW || a == LOW && b == HIGH){
+    counterRight++;
+  } else{//if(a == HIGH && b == HIGH || a == LOW && b == LOW)
+    counterRight--;
   }
-  ticks = 0;
+}
+
+void interruptRightB(){
+  int a = digitalRead(interruptRightOne);
+  int b = digitalRead(interruptRightTwo);
+  if(a == HIGH && b == HIGH || a == LOW && b == LOW){
+    counterRight++;
+  } else {//if(a == HIGH && b == LOW || a == LOW && b == HIGH)
+    counterRight--;
+  }
+}
+
+void interruptLeftA(){
+  int a = digitalRead(interruptLeftOne);
+  int b = digitalRead(interruptLeftTwo);
+  if(a == HIGH && b == LOW || a == LOW && b == HIGH){
+    counterLeft++;
+  } else{//if(a == HIGH && b == HIGH || a == LOW && b == LOW)
+    counterLeft--;
+  }
+}
+
+void interruptLeftB(){
+  int a = digitalRead(interruptLeftOne);
+  int b = digitalRead(interruptLeftTwo);
+  if(a == HIGH && b == HIGH || a == LOW && b == LOW){
+    counterLeft++;
+  } else {//if(a == HIGH && b == LOW || a == LOW && b == HIGH)
+    counterLeft--;
+  }
 }
 
 void readUS(){                              // a low pull on pin COMP/TRIG  triggering a sensor reading
-  digitalWrite(trig, LOW);
-  digitalWrite(trig, HIGH);               // reading Pin PWM will output pulses
+  digitalWrite(USTrigger, LOW);
+  digitalWrite(USTrigger, HIGH);               // reading Pin PWM will output pulses
     
-  unsigned long DistanceMeasured=pulseIn(pwm,LOW);
+  unsigned long DistanceMeasured=pulseIn(USPWM ,LOW);
   unsigned int Distance = 0;
   if(DistanceMeasured>=10200)
   {              // the reading is invalid.
@@ -127,6 +128,48 @@ void readUS(){                              // a low pull on pin COMP/TRIG  trig
   }  
 }
 
+void motorStatusRight(){
+  Serial.print(counterRight);
+  counterRight = 0;
+}
+
+void motorStatusLeft(){
+  Serial.print(counterLeft);
+  counterLeft = 0;
+}
+
+void setPosition(char servo,int angle) {
+  if(servo == 'A')
+  {
+    servoA.write(angle);
+  }
+  else
+  {
+    servoB.write(angle);
+  }
+}
+
+void setArm(int angle) {
+  servoA.write(angle);
+  servoB.write(180-angle);
+}
+
+void setArmUp() {
+  for(int i = 180; i > -1; i-=2)
+  {
+    setArm(i);
+    delay(20);
+  }
+}
+
+void setArmDown() {
+  for(int i = 0; i < 181; i+=2)
+  {
+    setArm(i);
+    delay(20);
+  }
+}
+
 void loop() {
   // Fetch all commands that are in the buffer
   while (Serial.available()) {
@@ -136,6 +179,31 @@ void loop() {
       case 'a':
         command_analogue_read();
         Serial.print("\n");
+        break;
+      case 'b':
+        motorStatusRight();
+        Serial.print("\n");
+        break;
+      case 'c':
+        counterRight = 0;
+        counterLeft = 0;
+        Serial.print("\n");
+        break;
+      case 'd':
+        readUS();
+        Serial.print("\n");
+        break;
+      case 'e':
+        motorStatusLeft();
+        Serial.print("\n");
+        break;
+      case 'f':
+        Serial.print("\n");
+        setArmUp();
+        break;
+      case 'g':
+        Serial.print("\n");
+        setArmDown();
         break;
       case 'r':
         command_read();
@@ -165,74 +233,6 @@ void loop() {
         Serial.print("SRcustom:");
         Serial.print(FW_VER);
         Serial.print("\n");
-        break;
-      case 'b':
-        readUS();
-        Serial.print("\n");
-        break;
-      case 'c':
-        Serial.print("\n");
-        forwardDrive();
-        break;
-      case 'd':
-        Serial.print("\n");
-        backwardDrive();
-        break;
-      case 'e':
-        Serial.print("\n");
-        rightTurn();
-        break;
-      case 'f':
-        Serial.print("\n");
-        leftTurn();
-        break;
-      case 'g':
-        Serial.print("\n");
-        ticks = ticks+5000;
-        break;
-      case 'j':
-        Serial.print("\n");
-        ticks = ticks+2000;
-        break;
-      case 'k':
-        Serial.print("\n");
-        ticks = ticks+1000;
-        break;
-      case 'm':
-        Serial.print("\n");
-        ticks = ticks+500;
-        break;
-      case 'n':
-        Serial.print("\n");
-        ticks = ticks+200;
-        break;
-      case 'q':
-        Serial.print("\n");
-        ticks = ticks+100;
-        break;
-      case 's':
-        Serial.print("\n");
-        ticks = ticks+50;
-        break;
-      case 't':
-        Serial.print("\n");
-        ticks = ticks+20;
-        break;
-      case 'u':
-        Serial.print("\n");
-        ticks = ticks+10;
-        break;
-      case 'w':
-        Serial.print("\n");
-        ticks = ticks+5;
-        break;
-      case 'x':
-        Serial.print("\n");
-        ticks = ticks+2;
-        break;
-      case 'y':
-        Serial.print("\n");
-        ticks = ticks+1;
         break;
       default:
         Serial.print("\n");
